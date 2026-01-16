@@ -1,14 +1,21 @@
-import { statSync, readdirSync, readFileSync, existsSync, writeFileSync } from "fs";
+import { statSync, readdirSync, readFileSync, existsSync, writeFileSync, Dirent, Dir } from "fs";
 import path from "path";
 
+interface ExposableDirent {
+    name: string;
+    isDirectory: boolean;
+    internalPath: string;
+    size: number;
+}
+
 interface FileStore {
-    ls(...opts: Parameters<typeof readdirSync> extends [any, ...infer X] ? X : never): string[];
-    lsFiles(): string[];
-    getFilePath(name: string): string;
-    getFile(name: string): string;
-    putFile(name: string, data: string): void;
-    isFile(name: string): boolean;
-    isDirectory(name: string): boolean;
+    ls(internalPath?: string): string[];
+    lsF(internalPath: string): ExposableDirent[];
+    getFilePath(internalPath: string): string;
+    getFile(internalPath: string): string;
+    putFile(internalPath: string, data: Buffer): void;
+    isFile(internalPath: string): boolean;
+    isDirectory(internalPath: string): boolean;
 }
 
 export class FSStore implements FileStore {
@@ -20,34 +27,51 @@ export class FSStore implements FileStore {
             throw new Error(`The provided base path: "${this._storeFolder}" is not a valid directory.`);
         }
     }
-    private _fullPathInternal(name: string): string {
-        return path.join(this._storeFolder, name);
+    private _fullPathInternal(subPath: string): string {
+        const normalizedFileName = path.normalize(subPath).replace(/^(\.\.[\/\\])+/, '');
+        if (normalizedFileName !== subPath || normalizedFileName.includes('..')) {
+            throw new Error('Invalid file path.');
+        }
+        return path.join(this._storeFolder, subPath);
     }
-    ls(...opts: Parameters<typeof readdirSync> extends [any, ...infer X] ? X : never): string[] {
-        return readdirSync(this._storeFolder, ...opts).map(f => f.name.toString());
+    private _isFile(fullPath: string): boolean {
+        return existsSync(fullPath) && statSync(fullPath).isFile();
     }
-    lsFiles(): string[] {
-        return this.ls().filter(f => this.isFile(f));
+    private _isDirectory(fullPath: string): boolean {
+        return existsSync(fullPath) && statSync(fullPath).isDirectory();
     }
-    getFilePath(name: string): string {
-        return this._fullPathInternal(name);
+    ls(internalPath?: string): string[] {
+        return readdirSync(internalPath
+            ? this._fullPathInternal(internalPath)
+            : this._storeFolder
+        );
     }
-    getFile(name: string): string {
-        return readFileSync(this._fullPathInternal(name), { encoding: 'utf-8' });
+    lsF(internalPath: string): ExposableDirent[] {
+        const target = this._fullPathInternal(internalPath);
+        return readdirSync(target, { withFileTypes: true }).map(entry => ({
+            name: entry.name,
+            isDirectory: entry.isDirectory(),
+            internalPath: path.join(internalPath, entry.name),
+            size: entry.isDirectory() ? 0 : statSync(path.join(target, entry.name)).size
+        }));
     }
-    putFile(name: string, data: string): void {
-        const target = this._fullPathInternal(name);
-        if (existsSync(target)) {
-            throw new Error(`File with name "${name}" already exists in store.`);
+    getFilePath(internalPath: string): string {
+        return this._fullPathInternal(internalPath);
+    }
+    getFile(internalPath: string): string {
+        return readFileSync(this._fullPathInternal(internalPath), { encoding: 'utf-8' });
+    }
+    putFile(internalPath: string, data: Buffer): void {
+        const target = this._fullPathInternal(internalPath);
+        if (this._isFile(target)) {
+            throw new Error(`File "${internalPath}" already exists in store.`);
         }
         return writeFileSync(target, data, { encoding: 'utf-8' });
     }
-    isFile(name: string): boolean {
-        const target = this._fullPathInternal(name);
-        return existsSync(target) && statSync(target).isFile();
+    isFile(internalPath: string): boolean {
+        return this._isFile(this._fullPathInternal(internalPath));
     }
-    isDirectory(name: string): boolean {
-        const target = this._fullPathInternal(name);
-        return existsSync(target) && statSync(target).isDirectory();
+    isDirectory(internalPath: string): boolean {
+        return this._isDirectory(this._fullPathInternal(internalPath));
     }
 }

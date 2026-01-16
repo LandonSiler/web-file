@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { existsSync } from 'node:fs';
 import { FSStore } from './store';
+import { whenError } from './util';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const PORT = process.env.PORT || 3000;
@@ -17,9 +18,13 @@ console.log(`Server running in ${isDev ? 'development' : 'production'} mode.`);
 const app = express();
 const store = new FSStore(publicFolderPath);
 
-app.use(express.static(publicFolderPath));
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1000mb' }));
+app.use(express.raw({
+    limit: '1000mb',
+    type: '*/*'
+}));
+app.use('/api/file', express.static(publicFolderPath));
 
 
 if (!isDev) {
@@ -40,29 +45,27 @@ if (!isDev) {
     });
 }
 
-app.post('/api/file', (req, res) => {
-    const requestData = req.body;
-    console.log('Received data:', requestData);
-    res.json({ message: 'Data received successfully', receivedData: requestData });
+app.post('/api/files/{*internalPath}', (req, res) => {
+    const internalPath = req.params.internalPath;
+    whenError(() => {
+        const data = req.body;
+        store.putFile(internalPath.join('/'), data);
+        res.json({ success: true });
+    }, (err) => {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to save file', details: "Reference console if server admin." });
+    });
 });
 
-app.get('/api/file/{:name}', (req, res) => {
-    const fileName = req.params.name;
-    if (!fileName) {
-        res.status(400).json({ error: 'File name parameter is missing' });
-        return;
-    }
-    const exists = store.isFile(fileName);
-    if (!exists) {
-        res.status(404).json({ error: `File with name: ${fileName} not found` });
-        return;
-    };
-    res.sendFile(store.getFilePath(fileName));
-});
-
-app.get('/api/files', (req, res) => {
-    const files = store.ls({ withFileTypes: true });
-    res.json(files);
+app.get('/api/files/{*internalPath}', (req, res) => {
+    const internalPath = req.params.internalPath;
+    whenError(() => {
+        const files = store.lsF(internalPath ? internalPath.join('/') : '/');
+        res.json(files);
+    }, (err) => {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to list files', details: "Likely not a valid directory." });
+    });
 });
 
 

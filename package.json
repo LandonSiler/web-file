@@ -1,0 +1,20 @@
+{
+	"scripts": {
+		"start": "node dist/server/index.js",
+		"dev": "tsx script/dev.ts",
+		"dev:dev": "concurrently \"tsx src/server/index.ts\" \"pnpm -r --filter !. run dev\"",
+		"build:prepare": "rm -rf dist && mkdir -p dist/web",
+		"build:post": "cp -r src/web/dist/* dist/web/",
+		"build": "pnpm build:prepare && pnpm -r build && pnpm build:post"
+	},
+	"devDependencies": {
+		"@types/node": "^25.0.7",
+		"concurrently": "^9.2.1",
+		"tsx": "^4.21.0"
+	},
+	"dependencies": {
+		"cors": "^2.8.5",
+		"dotenv": "^17.2.3",
+		"express": "^5.2.1"
+	}
+}

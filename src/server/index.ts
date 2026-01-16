@@ -41,7 +41,7 @@ if (!isDev) {
     });
 } else {
     app.get('/', (req, res) => {
-        res.redirect('http://localhost:5173');
+        res.redirect(`${req.protocol}://${req.hostname}:5173`);
     });
 }
 
